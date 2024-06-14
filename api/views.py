@@ -1,39 +1,46 @@
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
-from django.shortcuts import render
+from django.shortcuts import render, redirect
+from .forms import PdfUploadForm
 from .models import PdfData
-from .serializers import PdfDataSerializer
 import PyPDF2
 import nltk
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
 from nltk import pos_tag
 
-class PdfUploadView(APIView):
-    def post(self, request, format=None):
-        file = request.FILES['file']
-        email = request.data['email']
-        pdf_reader = PyPDF2.PdfReader(file)
-        text = ""
-        for page_num in range(len(pdf_reader.pages)):
-            text += pdf_reader.pages[page_num].extract_text()
-            # page = pdf_reader.pages[page_num]
-            # text += page.extract_text()
+nltk.download('punkt')
+nltk.download('stopwords')
+nltk.download('averaged_perceptron_tagger')
 
-        words = word_tokenize(text)
-        words = [word for word in words if word.isalnum()]
-        stop_words = set(stopwords.words('english'))
-        words = [word for word in words if word.lower() not in stop_words]
-        tagged_words = pos_tag(words)
-        nouns = [word for word, pos in tagged_words if pos.startswith('NN')]
-        verbs = [word for word, pos in tagged_words if pos.startswith('VB')]
+def upload_view(request):
+    if request.method == 'POST':
+        form = PdfUploadForm(request.POST, request.FILES)
+        if form.is_valid():
+            email = form.cleaned_data['email']
+            file = form.cleaned_data['file']
 
-        pdf_data = PdfData(email=email, content=text, nouns=" ".join(nouns), verbs=" ".join(verbs))
-        pdf_data.save()
+            pdf_reader = PyPDF2.PdfReader(file)
+            text = ""
+            for page_num in range(len(pdf_reader.pages)):
+                page = pdf_reader.pages[page_num]
+                text += page.extract_text()
 
-        serializer = PdfDataSerializer(pdf_data)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+            # for page_num in range(len(pdf_reader.pages)):
+            #     text += pdf_reader.pages[page_num].extract_text()
+
+            words = word_tokenize(text)
+            words = [word for word in words if word.isalnum()]
+            stop_words = set(stopwords.words('english'))
+            words = [word for word in words if word.lower() not in stop_words]
+            tagged_words = pos_tag(words)
+            nouns = [word for word, pos in tagged_words if pos.startswith('NN')]
+            verbs = [word for word, pos in tagged_words if pos.startswith('VB')]
+
+            pdf_data = PdfData(email=email, content=text, nouns=" ".join(nouns), verbs=" ".join(verbs))
+            pdf_data.save()
+            return redirect('extracted-data')
+    else:
+        form = PdfUploadForm()
+    return render(request, 'upload.html', {'form': form})
 
 def extracted_data_view(request):
     data = PdfData.objects.all()
